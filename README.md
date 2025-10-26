@@ -1,4 +1,4 @@
-# RPI.heating_control
+# LoRa sensor
 
-Small Python test growing into a heating control system
+
 
