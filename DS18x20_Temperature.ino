@@ -9,7 +9,7 @@
 
 //WDT
 //3 seconds WDT
-#define WDT_TIMEOUT 10
+#define WDT_TIMEOUT 19
 esp_err_t ESP32_ERROR;
 
 //1-wire
@@ -24,6 +24,22 @@ DallasTemperature sensors(&oneWire);
 #define LRx 14
 #define LTx 12
 SoftwareSerial LoRa(LRx, LTx);
+int LoRaPowerStatus;
+
+//function to send a string to LoRa, must end with \0
+int LoRaSendStr(char *s) {
+  int i=0;
+
+  //check \n
+  Serial.print("Sending:");
+  while(s[i]!='\0' && i<strlen(s)) {
+    Serial.write(s[i]);
+    LoRa.write(s[i]);
+    i++;
+  }
+  Serial.println("");
+  return(1);
+}
 
 void setup() {
   byte RxData;
@@ -59,18 +75,21 @@ void setup() {
 
   // Start the DS18B20 sensor
   sensors.begin();
-
+  LoRa.begin(9600);
   //Setup LoRa
   //Reset LoRa
   pinMode(25, OUTPUT); digitalWrite(25, 1);
   pinMode(26, OUTPUT); digitalWrite(26, 1);
-  delay(1000);
-  LoRa.print("AT+RESET");
+  delay(200);
+  LoRaSendStr("AT+POWER=3");
+  delay(200);
+  LoRaSendStr("AT+RESET");
   //Set LoRa mode
   delay(4000);
   pinMode(25, OUTPUT); digitalWrite(25, pinM);
   pinMode(26, OUTPUT); digitalWrite(26, pinM);
-  LoRa.begin(9600);
+  LoRaPowerStatus = 3;
+
   Serial.print("Ready");
 
 #ifdef LoRaConfig
@@ -90,13 +109,33 @@ void setup() {
 
 int checkMessage(int status) {
   //if message confirmed increase/maintain status
+  if(status > 30 && status < 40 && LoRaPowerStatus != 3) {
+    LoRaPower(3);
+  }
   status=50;
   Serial.println("CheckMessage: Status confirmed");
+  
   return status;
 }
 
 void LoRaPower(int power) {
   Serial.println("LoRaPower: power change");
+  pinMode(25, OUTPUT); digitalWrite(25, 1);
+  pinMode(26, OUTPUT); digitalWrite(26, 1);
+  delay(200);
+  if( power == 1){
+    LoRaSendStr("AT+POWER=1");
+    LoRaPowerStatus = 1;
+  } else {
+    LoRaSendStr("AT+POWER=3");
+    LoRaPowerStatus = 3;
+  }
+  delay(500);
+  LoRaSendStr("AT+RESET");
+  //Set LoRa mode
+  delay(3000);
+  pinMode(25, OUTPUT); digitalWrite(25, 0);
+  pinMode(26, OUTPUT); digitalWrite(26, 0);
 }
 
 
@@ -118,17 +157,16 @@ void loop() {
   float temperatureC = sensors.getTempCByIndex(0);
   Serial.print(temperatureC);
   Serial.println("ºC");
-  sprintf(txtbuf, "%3.3f X\n", temperatureC);
+  sprintf(txtbuf, "%02.3f T01&", temperatureC);
   Serial.println(txtbuf);
-  i=0;
-  while ((txtbuf[i]!='\n') and (i<10)) {
-    LoRa.write(txtbuf[i]);
-    i++; }
+  LoRaSendStr(txtbuf);
 
   //LoRa delivery
   status--;
   Serial.print("Status: ");
-  Serial.println(status);
+  Serial.print(status);
+  Serial.print(" PWR:");
+  Serial.println(LoRaPowerStatus);
   for(int i=0; i<5000; i++){
     delay(1);
     if(LoRa.available()) {
@@ -143,7 +181,7 @@ void loop() {
     }
   }
   if(status==40) {
-    LoRaPower(20);
+    LoRaPower(1);
   }
 
   if(status==1){
